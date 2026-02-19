@@ -2152,7 +2152,7 @@ window.showEmailModal = function(mode = 'email') {
     const modalTitle = document.getElementById('modal-title');
 
     if (btnText) {
-        btnText.textContent = mode === 'download' ? 'Download the report' : ' the report';
+        btnText.textContent = mode === 'download' ? 'Download the report' : 'Email the report';
     }
 
     if (modalTitle) {
