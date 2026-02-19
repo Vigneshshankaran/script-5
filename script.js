@@ -2076,7 +2076,7 @@ window.downloadPDF = async function() {
         const reportData = prepareReportData();
 
         console.log("Fetching from backend at http://127.0.0.1:3006/generate-pdf...");
-        const response = await fetch('https://safe-calculator-backend-production-ebb2.up.railway.app/generate-pdf', {
+        const response = await fetch('http://127.0.0.1:3005/generate-pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reportData })
@@ -2152,7 +2152,7 @@ window.showEmailModal = function(mode = 'email') {
     const modalTitle = document.getElementById('modal-title');
 
     if (btnText) {
-        btnText.textContent = mode === 'download' ? 'Download the report' : 'Email the report';
+        btnText.textContent = mode === 'download' ? 'Download the report' : ' the report';
     }
 
     if (modalTitle) {
@@ -2273,7 +2273,7 @@ window.sendEmailWithPDF = async function() {
         };
 
         if (modalMode === 'download') {
-            const response = await fetch('https://safe-calculator-backend-production-ebb2.up.railway.app/generate-pdf', {
+            const response = await fetch('https://safe-calculator-backend-production-73fe.up.railway.app/generate-pdf', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reportData, leadData: payload.summaryData, to_email: primaryEmail })
@@ -2305,7 +2305,7 @@ window.sendEmailWithPDF = async function() {
             }
         } else {
             showToast('Sending...', 'success');
-            const emailResponse = await fetch('https://safe-calculator-backend-production-ebb2.up.railway.app/send-email', {
+            const emailResponse = await fetch('https://safe-calculator-backend-production-73fe.up.railway.app/send-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
