@@ -1641,6 +1641,25 @@ PART 3: PDF & INTEGRATION
 Email, Toast, and PDF generation logic.
 ================================================================
 */
+const API_KEY = "2072a33203bd95a346196f8daf0d5cb842ac24f1c4c4becc8a40be764e4e2a41";
+const BASE_URL = "https://app.equitylist.co";
+
+async function safeFetch(url, options) {
+    const response = await fetch(url, options);
+
+    if (response.status === 401) {
+        throw new Error("Invalid API key");
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+        throw new Error(data.message || "Request failed");
+    }
+
+    return data;
+}
+
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast-notification');
     toast.textContent = message;
@@ -2049,13 +2068,13 @@ const prepareReportData = () => {
     const totalFounderPctPre = commonSharesTotalPre > 0 ? founderSharesPre / commonSharesTotalPre : 0;
     const ownershipPre = safeFormatPercent(totalFounderPctPre);
 
+    const companyInput = document.getElementById('company-input');
+    const companyName = companyInput ? companyInput.value.trim() : 'My Company';
+
     return {
-        valuation: state.preMoney,
-        raised: totalRaisedVal,
-        safeAmount: state.rowData.filter(r => r.type === CapTableRowType.Safe).reduce((sum, r) => sum + (r.investment || 0), 0),
-        timestamp: timestamp,
-        optionPool: state.targetOptionsPool + "%",
+        companyName: companyName,
         roundName: state.roundName || "priced round",
+        timestamp: timestamp,
         summary: {
             ownershipPre: ownershipPre,
             ownershipPost: founderOwnership,
@@ -2065,7 +2084,9 @@ const prepareReportData = () => {
             totalShares: getVal('total-post-shares-val'),
             totalRaised: totalRaised
         },
-        rows: rows
+        rows: rows,
+        safeAmount: state.rowData.filter(r => r.type === CapTableRowType.Safe).reduce((sum, r) => sum + (r.investment || 0), 0),
+        optionPool: (state.targetOptionsPool || 0) + "%"
     };
 };
 
@@ -2073,49 +2094,53 @@ window.downloadPDF = async function() {
     try {
         console.log("Starting PDF download flow...");
         showToast('Generating report...', 'success');
-        const reportData = prepareReportData();
+        
+        // If no API key is set, fallback to client-side generation
+        if (!API_KEY || API_KEY === "your-api-key") {
+            const doc = await generateCombinedPDF();
+            if (doc) {
+                doc.save(`SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+                showToast('Report generated locally!', 'success');
+                return;
+            }
+            throw new Error("Client-side PDF generation failed.");
+        }
 
-        console.log("Fetching from backend at http://127.0.0.1:3006/generate-pdf...");
-        const response = await fetch('http://127.0.0.1:3005/generate-pdf', {
+        const reportData = prepareReportData();
+        console.log(`Fetching from backend at ${BASE_URL}/api/v1/safe_calculator/generate_pdf...`);
+        const result = await safeFetch(`${BASE_URL}/api/v1/safe_calculator/generate_pdf`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reportData })
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-API-KEY': API_KEY
+            },
+            body: JSON.stringify({ report_data: reportData })
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Server responded with ${response.status}: ${errText}`);
+        console.log("Response received from backend: Success");
+
+        const pdfBase64 = result.pdfBase64;
+        const byteCharacters = atob(pdfBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
-        const result = await response.json();
-        console.log("Response received from backend:", result.success ? "Success" : "Failure");
-
-        if (result.success) {
-            const pdfBase64 = result.pdfBase64;
-            const byteCharacters = atob(pdfBase64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            showToast('Report downloaded!', 'success');
-        } else {
-            throw new Error(result.message || "Backend failed to generate PDF");
-        }
+        showToast('Report downloaded!', 'success');
     } catch (error) {
         console.error("PDF Download Error:", error);
-        alert(`PDF Download Failed: ${error.message}\n\nPlease ensure the backend server is running in the 'backend' folder.`);
+        alert(`PDF Download Failed: ${error.message}`);
         showToast('Error generating PDF', 'error');
     }
 };
@@ -2152,7 +2177,7 @@ window.showEmailModal = function(mode = 'email') {
     const modalTitle = document.getElementById('modal-title');
 
     if (btnText) {
-        btnText.textContent = mode === 'download' ? 'Download the report' : 'Email the report';
+        btnText.textContent = mode === 'download' ? 'Download the report' : ' the report';
     }
 
     if (modalTitle) {
@@ -2257,71 +2282,79 @@ window.sendEmailWithPDF = async function() {
     try {
         const reportData = prepareReportData();
         const primaryEmail = emails[0];
-        const payload = {
-            to_email: emails, // Now passing an array
-            reportData: reportData,
-            summaryData: {
-                firstName: firstName || 'there',
-                lastName: lastName,
-                companyName: company,
-                subscribe: subscribe,
-                founderOwnership: reportData.summary.ownershipPost,
-                founderDilution: reportData.summary.dilution,
-                postMoney: reportData.summary.postMoney,
-                totalRaised: reportData.summary.totalRaised
-            }
+        
+        const summaryData = {
+            firstName: firstName || 'there',
+            lastName: lastName,
+            companyName: company,
+            subscribe: subscribe,
+            founderOwnership: reportData.summary.ownershipPost,
+            founderDilution: reportData.summary.dilution,
+            postMoney: reportData.summary.postMoney,
+            totalRaised: reportData.summary.totalRaised
         };
 
         if (modalMode === 'download') {
-            const response = await fetch('https://safe-calculator-backend-production-73fe.up.railway.app/generate-pdf', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reportData, leadData: payload.summaryData, to_email: primaryEmail })
-            });
-
-            if (!response.ok) throw new Error('Failed to generate PDF');
-            const result = await response.json();
-            
-            if (result.success) {
-                const byteCharacters = atob(result.pdfBase64);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+            // Local fallback for download in modal if no key
+            if (!API_KEY || API_KEY === "your-api-key") {
+                const doc = await generateCombinedPDF();
+                if (doc) {
+                    doc.save(`SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+                    showToast('Report generated locally!', 'success');
+                    hideEmailModal();
+                    return;
                 }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: 'application/pdf' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showToast('Report downloaded!', 'success');
-                hideEmailModal();
-            } else {
-                throw new Error(result.message);
             }
+
+            const result = await safeFetch(`${BASE_URL}/api/v1/safe_calculator/generate_pdf`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-API-KEY': API_KEY
+                },
+                body: JSON.stringify({ report_data: reportData, leadData: summaryData, to_email: primaryEmail })
+            });
+            
+            const byteCharacters = atob(result.pdfBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SAFE_Calculator_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Report downloaded!', 'success');
+            hideEmailModal();
         } else {
             showToast('Sending...', 'success');
-            const emailResponse = await fetch('https://safe-calculator-backend-production-73fe.up.railway.app/send-email', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const result = await emailResponse.json();
-            if (result.success) {
-                hideEmailModal();
-                showToast('Email sent successfully!', 'success');
-            } else {
-                throw new Error(result.message);
+            // Using a loop to handle multiple emails if provided
+            for (const email of emails) {
+                await safeFetch(`${BASE_URL}/api/v1/safe_calculator/send_email`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-API-KEY': API_KEY
+                    },
+                    body: JSON.stringify({
+                        to_email: email,
+                        report_data: reportData,
+                        summaryData: summaryData
+                    })
+                });
             }
+            hideEmailModal();
+            showToast('Email sent successfully!', 'success');
         }
     } catch (error) {
         console.error('Action Error:', error);
-        showToast('Error. Is the backend running?', 'error');
+        showToast(`Error: ${error.message}`, 'error');
     } finally {
         sendBtn.disabled = false;
         btnText.style.display = 'inline';
